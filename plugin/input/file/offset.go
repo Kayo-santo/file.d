@@ -14,6 +14,10 @@ import (
 	"go.uber.org/atomic"
 )
 
+const (
+	previousOffsetSuffix pipeline.StreamName = "_prevOffset"
+)
+
 type offsetDB struct {
 	curOffsetsFile string
 	tmpOffsetsFile string
@@ -161,15 +165,9 @@ func (o *offsetDB) parseStreams(content string, streams streamsOffsets) (string,
 		}
 		content = content[linePos+1:]
 
-		pos := strings.IndexByte(line, ':')
+		pos := strings.LastIndexByte(line, ':')
 		if pos < 0 {
 			return "", fmt.Errorf("wrong offsets format, no separator %q", line)
-		}
-
-		streamNameWithColon := line[4 : pos+2]
-		if !isValidStreamName(streamNameWithColon) {
-			logger.Warnf("invalid stream name: %s, skipping stream", streamNameWithColon)
-			continue
 		}
 
 		stream := pipeline.StreamName(line[4:pos])
@@ -189,6 +187,10 @@ func (o *offsetDB) parseStreams(content string, streams streamsOffsets) (string,
 		}
 
 		streams[stream] = offset
+		if !isValidStreamName(stream) {
+			logger.Warnf("invalid stream name: %s", stream)
+			streams[stream+previousOffsetSuffix] = offset
+		}
 	}
 
 	return content, nil
@@ -258,10 +260,16 @@ func (o *offsetDB) save(jobs map[pipeline.SourceID]*Job, mu *sync.RWMutex) {
 
 		o.buf = append(o.buf, "  streams:\n"...)
 		for _, strOff := range job.offsets {
-			if !isValidStreamName(string(strOff.Stream)) {
-				o.invalidStreamsCountMetric.Inc()
-				logger.Errorf("can't write invalid stream %s, file %s", strOff.Stream, job.filename)
+			if strings.HasSuffix(string(strOff.Stream), string(previousOffsetSuffix)) {
 				continue
+			}
+			if !isValidStreamName(strOff.Stream) {
+				prevOffset, has := job.offsets.Get(strOff.Stream + previousOffsetSuffix)
+				if !has || strOff.Offset != prevOffset {
+					o.invalidStreamsCountMetric.Inc()
+					job.offsets.Set(strOff.Stream+previousOffsetSuffix, strOff.Offset)
+					logger.Errorf("invalid stream %s was written, file %s", strOff.Stream, job.filename)
+				}
 			}
 			o.buf = append(o.buf, "    "...)
 			o.buf = append(o.buf, string(strOff.Stream)...)
@@ -299,6 +307,6 @@ func (o *offsetDB) snapshotJobs(mu *sync.RWMutex, jobs map[pipeline.SourceID]*Jo
 	return o.jobsSnapshot
 }
 
-func isValidStreamName(streamName string) bool {
+func isValidStreamName(streamName pipeline.StreamName) bool {
 	return streamName[len(streamName)-1] != ':'
 }
