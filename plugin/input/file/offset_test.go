@@ -21,12 +21,14 @@ func TestParseOffsets(t *testing.T) {
   source_id: 1234
   streams:
     default: 100
+    error:: 960
     another: 200
 - file: /another/informational/name
   inode: 2
   source_id: 4321
   streams:
     stderr: 300
+    error:: 0
 `
 	ctl := metric.NewCtl("test", prometheus.NewRegistry())
 	metrics := newOffsetDbMetricCollection(
@@ -46,6 +48,10 @@ func TestParseOffsets(t *testing.T) {
 	assert.True(t, has, "stream isn't found")
 	assert.Equal(t, int64(100), offset, "wrong offset")
 
+	offset, has = item.streams["error:"]
+	assert.True(t, has, "stream isn't found")
+	assert.Equal(t, int64(960), offset)
+
 	offset, has = item.streams["another"]
 	assert.True(t, has, "stream isn't found")
 	assert.Equal(t, int64(200), offset, "wrong offset")
@@ -59,57 +65,13 @@ func TestParseOffsets(t *testing.T) {
 	offset, has = item.streams["stderr"]
 	assert.True(t, has, "stream isn't found")
 	assert.Equal(t, int64(300), offset, "wrong offset")
+
+	offset, has = item.streams["error:"]
+	assert.True(t, has, "stream isn't found")
+	assert.Equal(t, int64(0), offset)
 }
 
-func TestParseOffsetsSkipInvalidStream(t *testing.T) {
-	data := `- file: /some/informational/name
-  inode: 1
-  source_id: 1234
-  streams:
-    default: 100
-    another: 200
-    error:: 960
-- file: /another/informational/name
-  inode: 2
-  source_id: 4321
-  streams:
-    error:: 0
-    stderr: 300
-`
-	ctl := metric.NewCtl("test", prometheus.NewRegistry())
-	metrics := newOffsetDbMetricCollection(
-		ctl.RegisterCounter("worker1", "help_test"),
-	)
-	offsetDB := newOffsetDB("", "", metrics)
-	offsets, err := offsetDB.parse(data)
-	require.NoError(t, err)
-
-	item, has := offsets[pipeline.SourceID(1234)]
-	assert.True(t, has, "item isn't found")
-
-	offset, has := item.streams["default"]
-	assert.True(t, has, "stream isn't found")
-	assert.Equal(t, int64(100), offset, "wrong offset")
-
-	offset, has = item.streams["another"]
-	assert.True(t, has, "stream isn't found")
-	assert.Equal(t, int64(200), offset, "wrong offset")
-
-	_, has = item.streams["error:"]
-	assert.True(t, !has, "invalid stream found")
-
-	item, has = offsets[pipeline.SourceID(4321)]
-	assert.True(t, has, "item isn't found")
-
-	_, has = item.streams["error:"]
-	assert.True(t, !has, "invalid stream found")
-
-	offset, has = item.streams["stderr"]
-	assert.True(t, has, "stream isn't found")
-	assert.Equal(t, int64(300), offset, "wrong offset")
-}
-
-func TestSaveOffsetsSkipInvalidStream(t *testing.T) {
+func TestSaveOffsetsInvalidStream(t *testing.T) {
 	data := `- file: /some/informational/name
   inode: 1
   source_id: 1234
@@ -155,7 +117,55 @@ func TestSaveOffsetsSkipInvalidStream(t *testing.T) {
 	content, err := os.ReadFile("tests-offsets")
 	require.NoError(t, err)
 
-	assert.NotContains(t, string(content), "error:", "invalid stream was written")
+	assert.Contains(t, string(content), "error:", "stream wasn't written")
+	assert.Equal(t, testutil.ToFloat64(metrics.invalidStreamLogsMetric), float64(1))
+}
+
+func TestInvalidStreamLogsMetric(t *testing.T) {
+	data := `- file: /file1
+  inode: 1
+  source_id: 1234
+  streams:
+    default: 100
+    another: 200
+    error:: 333
+`
+	jobs := make(map[pipeline.SourceID]*Job)
+	offsets := pipeline.SliceFromMap(map[pipeline.StreamName]int64{})
+
+	jobs[0] = &Job{
+		file:           nil,
+		inode:          1,
+		sourceID:       1234,
+		filename:       "/file1",
+		symlink:        "/file1_sym",
+		ignoreEventsLE: 0,
+		lastEventSeq:   0,
+		isVirgin:       false,
+		isDone:         false,
+		shouldSkip:     *atomic.NewBool(false),
+		offsets:        offsets,
+		mu:             &sync.Mutex{},
+	}
+	rwmu := &sync.RWMutex{}
+	ctl := metric.NewCtl("test", prometheus.NewRegistry())
+	metrics := newOffsetDbMetricCollection(
+		ctl.RegisterCounter("worker1", "help_test"),
+	)
+	offsetDB := newOffsetDB("tests-offsets", "tests-offsets.tmp", metrics)
+	fpOffsets, err := offsetDB.parse(data)
+	assert.NoError(t, err)
+
+	jobs[0].offsets = pipeline.SliceFromMap(fpOffsets[1234].streams)
+	offsetDB.save(jobs, rwmu)
+	assert.Equal(t, testutil.ToFloat64(metrics.invalidStreamLogsMetric), float64(0))
+
+	jobs[0].offsets.Set("error:", 444)
+	offsetDB.save(jobs, rwmu)
+	assert.Equal(t, testutil.ToFloat64(metrics.invalidStreamLogsMetric), float64(1))
+
+	jobs[0].offsets.Set("default", 555)
+	offsetDB.save(jobs, rwmu)
 	assert.Equal(t, testutil.ToFloat64(metrics.invalidStreamLogsMetric), float64(1))
 }
 

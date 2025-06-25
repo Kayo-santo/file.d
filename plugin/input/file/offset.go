@@ -268,7 +268,7 @@ func (o *offsetDB) save(jobs map[pipeline.SourceID]*Job, mu *sync.RWMutex) {
 				if !has || strOff.Offset != prevOffset {
 					o.invalidStreamLogsMetric.Inc()
 					job.offsets.Set(strOff.Stream+previousOffsetSuffix, strOff.Offset)
-					logger.Errorf("invalid stream %s was written, file %s", strOff.Stream, job.filename)
+					logger.Warnf("invalid stream %s was written, file %s", strOff.Stream, job.filename)
 				}
 			}
 			o.buf = append(o.buf, "    "...)
