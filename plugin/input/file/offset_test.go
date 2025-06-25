@@ -156,7 +156,7 @@ func TestSaveOffsetsSkipInvalidStream(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotContains(t, string(content), "error:", "invalid stream was written")
-	assert.Equal(t, testutil.ToFloat64(metrics.invalidStreamsCountMetric), float64(1))
+	assert.Equal(t, testutil.ToFloat64(metrics.invalidStreamLogsMetric), float64(1))
 }
 
 func TestParallelOffsetsSave(t *testing.T) {

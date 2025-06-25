@@ -28,7 +28,7 @@ type offsetDB struct {
 	reloadCh       chan bool
 
 	// offset metrics
-	invalidStreamsCountMetric prometheus.Counter
+	invalidStreamLogsMetric prometheus.Counter
 }
 
 type inodeOffsets struct {
@@ -43,25 +43,25 @@ type (
 )
 
 type offsetDbMetricCollection struct {
-	invalidStreamsCountMetric prometheus.Counter
+	invalidStreamLogsMetric prometheus.Counter
 }
 
-func newOffsetDbMetricCollection(invalidStreamsCountMetric prometheus.Counter) *offsetDbMetricCollection {
+func newOffsetDbMetricCollection(invalidStreamLogsMetric prometheus.Counter) *offsetDbMetricCollection {
 	return &offsetDbMetricCollection{
-		invalidStreamsCountMetric: invalidStreamsCountMetric,
+		invalidStreamLogsMetric: invalidStreamLogsMetric,
 	}
 }
 
 func newOffsetDB(curOffsetsFile string, tmpOffsetsFile string, metrics *offsetDbMetricCollection) *offsetDB {
 	return &offsetDB{
-		curOffsetsFile:            curOffsetsFile,
-		tmpOffsetsFile:            tmpOffsetsFile,
-		mu:                        &sync.Mutex{},
-		savesTotal:                &atomic.Int64{},
-		buf:                       make([]byte, 0, 65536),
-		jobsSnapshot:              make([]*Job, 0),
-		reloadCh:                  make(chan bool),
-		invalidStreamsCountMetric: metrics.invalidStreamsCountMetric,
+		curOffsetsFile:          curOffsetsFile,
+		tmpOffsetsFile:          tmpOffsetsFile,
+		mu:                      &sync.Mutex{},
+		savesTotal:              &atomic.Int64{},
+		buf:                     make([]byte, 0, 65536),
+		jobsSnapshot:            make([]*Job, 0),
+		reloadCh:                make(chan bool),
+		invalidStreamLogsMetric: metrics.invalidStreamLogsMetric,
 	}
 }
 
@@ -266,7 +266,7 @@ func (o *offsetDB) save(jobs map[pipeline.SourceID]*Job, mu *sync.RWMutex) {
 			if !isValidStreamName(strOff.Stream) {
 				prevOffset, has := job.offsets.Get(strOff.Stream + previousOffsetSuffix)
 				if !has || strOff.Offset != prevOffset {
-					o.invalidStreamsCountMetric.Inc()
+					o.invalidStreamLogsMetric.Inc()
 					job.offsets.Set(strOff.Stream+previousOffsetSuffix, strOff.Offset)
 					logger.Errorf("invalid stream %s was written, file %s", strOff.Stream, job.filename)
 				}

@@ -49,7 +49,7 @@ type Plugin struct {
 	possibleOffsetCorruptionMetric    prometheus.Counter
 	alreadyWrittenEventsSkippedMetric prometheus.Counter
 	errorOpenFileMetric               prometheus.Counter
-	invalidStreamsCountMetric         prometheus.Counter
+	invalidStreamLogsMetric           prometheus.Counter
 	notifyChannelLengthMetric         prometheus.Gauge
 	numberOfCurrentJobsMetric         prometheus.Gauge
 }
@@ -244,7 +244,7 @@ func (p *Plugin) Start(config pipeline.AnyConfig, params *pipeline.InputPluginPa
 		newMetricCollection(
 			p.possibleOffsetCorruptionMetric,
 			p.errorOpenFileMetric,
-			p.invalidStreamsCountMetric,
+			p.invalidStreamLogsMetric,
 			p.notifyChannelLengthMetric,
 			p.numberOfCurrentJobsMetric,
 		),
@@ -262,7 +262,7 @@ func (p *Plugin) registerMetrics(ctl *metric.Ctl) {
 	p.possibleOffsetCorruptionMetric = ctl.RegisterCounter("input_file_possible_offset_corruptions_total", "Total number of possible offset corruptions")
 	p.alreadyWrittenEventsSkippedMetric = ctl.RegisterCounter("input_file_already_written_event_skipped_total", "Total number of skipped events that was already written")
 	p.errorOpenFileMetric = ctl.RegisterCounter("input_file_open_error_total", "Total number of file opening errors")
-	p.invalidStreamsCountMetric = ctl.RegisterCounter("invalid_streams_count", "Invalid stream names counter")
+	p.invalidStreamLogsMetric = ctl.RegisterCounter("invalid_stream_logs_total", "Total number of logs with invalid stream names")
 	p.notifyChannelLengthMetric = ctl.RegisterGauge("input_file_watcher_channel_length", "Number of unprocessed notify events")
 	p.numberOfCurrentJobsMetric = ctl.RegisterGauge("input_file_provider_jobs_length", "Number of current jobs")
 }
